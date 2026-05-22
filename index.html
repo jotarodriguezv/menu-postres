@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Malparados — Menú Digital</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+  
+  <script>
+    tailwind.config = {
+      content: [],
+      theme: {
+        extend: {
+          fontFamily: {
+            headline: ['Bebas Neue', 'sans-serif'],
+            body: ['Poppins', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body { font-family: 'Poppins', system-ui, sans-serif; }
+    .hero-category { height: 180px; }
+    .card-hover { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .card-hover:hover { transform: translateY(-8px); }
+    .nav-btn { transition: all 0.2s; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen pb-24">
+
+  <!-- HEADER -->
+  <header class="sticky top-0 z-50 bg-black/90 backdrop-blur-md border-b border-zinc-800">
+    <div class="max-w-lg mx-auto px-4 py-4 flex items-center justify-between">
+      <div>
+        <h1 id="restaurant-name" class="text-2xl font-bold tracking-tight"></h1>
+        <p id="restaurant-subtitle" class="text-zinc-400 text-sm"></p>
+      </div>
+      <button onclick="toggleSearch()" class="p-3 hover:bg-zinc-900 rounded-2xl">
+        <i class="fa-solid fa-magnifying-glass text-xl"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- BUSCADOR -->
+  <div id="search-container" class="hidden max-w-lg mx-auto px-4 py-3 sticky top-[60px] z-40 bg-zinc-950 border-b border-zinc-800">
+    <input id="search-input" 
+           type="text" 
+           placeholder="Buscar en el menú..." 
+           class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-5 py-3 text-white focus:outline-none focus:border-yellow-500"
+           onkeyup="filterDishes()">
+  </div>
+
+  <main class="max-w-lg mx-auto px-4 pt-6">
+    <div id="dishes-container" class="space-y-10"></div>
+  </main>
+
+  <!-- NAVEGACIÓN CATEGORÍAS STICKY (como Supermenu) -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-black/95 backdrop-blur-md border-t border-zinc-800 z-50 max-w-lg mx-auto">
+    <div id="category-nav" class="flex overflow-x-auto no-scrollbar gap-2 p-3"></div>
+  </nav>
+
+  <script>
+    // ==================== SUPABASE CONFIG ====================
+    const SUPABASE_URL = 'https://tllpmdhkdlqoqpnqmuwn.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_PqQsGWYjDAu8oq9ABB1hnQ_658qW8RB';
+    const RESTAURANTE_SLUG = 'malparados';
+
+    const supabase = {
+      get: async (tabla, query = '') => {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}?${query}`, {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+          }
+        });
+        return res.json();
+      }
+    };
+
+    let allProducts = [];
+    let currentFilter = 'all';
+
+    // ==================== CARGAR DATOS ====================
+    async function loadMenu() {
+      try {
+        // Restaurante
+        const [restData] = await supabase.get('restaurantes', `slug=eq.${RESTAURANTE_SLUG}&select=*`);
+        if (restData) {
+          document.getElementById('restaurant-name').textContent = restData.nombre;
+          document.getElementById('restaurant-subtitle').textContent = restData.descripcion || '';
+        }
+
+        // Productos con categoría
+        const products = await supabase.get('productos', 
+          `restaurante_id=eq.${restData.id}&disponible=eq.true&select=*,categorias(*)`
+        );
+
+        allProducts = products;
+        renderCategoryNav();
+        renderAllDishes();
+      } catch (e) {
+        console.error(e);
+        alert("Error cargando el menú");
+      }
+    }
+
+    function renderCategoryNav() {
+      const container = document.getElementById('category-nav');
+      container.innerHTML = `<button onclick="filterCategory('all')" class="nav-btn active px-5 py-2 bg-white text-black rounded-2xl text-sm font-medium whitespace-nowrap">Todos</button>`;
+
+      const cats = [...new Set(allProducts.map(p => p.categorias.nombre))];
+
+      cats.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = `nav-btn px-5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded-2xl text-sm font-medium whitespace-nowrap`;
+        btn.textContent = cat;
+        btn.onclick = () => filterCategory(cat);
+        container.appendChild(btn);
+      });
+    }
+
+    function filterCategory(cat) {
+      currentFilter = cat;
+      document.querySelectorAll('#category-nav button').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent === (cat === 'all' ? 'Todos' : cat));
+      });
+      renderAllDishes();
+    }
+
+    function filterDishes() {
+      const term = document.getElementById('search-input').value.toLowerCase();
+      renderAllDishes(term);
+    }
+
+    function renderAllDishes(searchTerm = '') {
+      const container = document.getElementById('dishes-container');
+      container.innerHTML = '';
+
+      let filtered = allProducts;
+
+      if (currentFilter !== 'all') {
+        filtered = filtered.filter(p => p.categorias.nombre === currentFilter);
+      }
+
+      if (searchTerm) {
+        filtered = filtered.filter(p => 
+          p.nombre.toLowerCase().includes(searchTerm) || 
+          (p.descripcion && p.descripcion.toLowerCase().includes(searchTerm))
+        );
+      }
+
+      // Agrupar por categoría
+      const grouped = {};
+      filtered.forEach(p => {
+        const catName = p.categorias.nombre;
+        if (!grouped[catName]) grouped[catName] = [];
+        grouped[catName].push(p);
+      });
+
+      Object.keys(grouped).forEach(catName => {
+        const section = document.createElement('div');
+        section.innerHTML = `
+          <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <span>${catName}</span>
+          </h2>
+          <div class="grid grid-cols-2 gap-3"></div>
+        `;
+
+        const grid = section.querySelector('.grid');
+
+        grouped[catName].forEach(product => {
+          const card = document.createElement('div');
+          card.className = "bg-zinc-900 rounded-3xl overflow-hidden card-hover";
+          card.innerHTML = `
+            <div class="relative">
+              <img src="${product.imagen_url || 'https://via.placeholder.com/400'}" 
+                   class="w-full h-44 object-cover" alt="${product.nombre}">
+              ${product.popular ? `<span class="absolute top-2 left-2 bg-orange-500 text-white text-xs px-2.5 py-1 rounded-full">Popular</span>` : ''}
+            </div>
+            <div class="p-3">
+              <div class="flex justify-between items-start">
+                <h3 class="font-semibold leading-tight">${product.nombre}</h3>
+                <span class="font-bold text-yellow-400">${product.precio}</span>
+              </div>
+              <p class="text-zinc-400 text-sm mt-1 line-clamp-2">${product.descripcion || ''}</p>
+            </div>
+          `;
+          grid.appendChild(card);
+        });
+
+        container.appendChild(section);
+      });
+    }
+
+    function toggleSearch() {
+      document.getElementById('search-container').classList.toggle('hidden');
+    }
+
+    // Iniciar
+    loadMenu();
+  </script>
+</body>
+</html>
